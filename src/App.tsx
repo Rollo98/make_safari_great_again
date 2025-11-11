@@ -25,8 +25,9 @@ export default function App() {
   const [currentRecordingType, setCurrentRecordingType] =
     useState<RecordingType | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const writableStreamRef = useRef<FileSystemWritableFileStream | null>(null);
+  const currentFileHandleRef = useRef<FileSystemFileHandle | null>(null);
 
   // State for *active* media file handles (the ones in the cards)
   const [activeWebcamFileHandle, setActiveWebcamFileHandle] =
@@ -240,53 +241,6 @@ export default function App() {
   // --- Media File Logic ---
 
   /**
-   * Saves a recorded Blob to the OPFS with a UUID.
-   */
-  const saveBlobToOPFS = async (blob: Blob, type: RecordingType) => {
-    const fileExtension = "webm"; // Or 'mp4' etc. depending on mimeType
-    const newFileName = `${type}-${crypto.randomUUID()}.${fileExtension}`;
-    console.log(
-      `LOG: [Media-Save] Saving ${type} recording to OPFS as "${newFileName}"`
-    );
-
-    setIsLoading(true);
-    clearMessages();
-
-    try {
-      const root = await (navigator.storage as any).getDirectory();
-      const fileHandle: FileSystemFileHandle = await root.getFileHandle(
-        newFileName,
-        { create: true }
-      );
-
-      const writable = await fileHandle.createWritable();
-      console.log(`LOG: [Media-Save] Writing ${blob.size} bytes...`);
-      await writable.write(blob);
-      await writable.close();
-
-      // Set this new file as the *active* one
-      if (type === "webcam") {
-        setActiveWebcamFileHandle(fileHandle);
-        setWebcamPlaybackUrl(null); // Invalidate old URL
-      } else {
-        setActiveScreenFileHandle(fileHandle);
-        setScreenPlaybackUrl(null); // Invalidate old URL
-      }
-
-      setSuccess(`Recording "${newFileName}" saved and loaded!`);
-      console.log("LOG: [Media-Save] File saved successfully.");
-
-      // Refresh file list after saving
-      await handleListFiles();
-    } catch (err: any) {
-      console.error("LOG: [Media-Save] Error:", err);
-      setError(`Save failed: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  /**
    * Starts a new recording (webcam or screen).
    */
   const startRecording = async (type: RecordingType) => {
@@ -322,28 +276,85 @@ export default function App() {
       return;
     }
 
+    // Create file in OPFS before starting recording
+    const fileExtension = "webm";
+    const newFileName = `${type}-${crypto.randomUUID()}.${fileExtension}`;
+    console.log(
+      `LOG: [Media-Record] Creating file "${newFileName}" for direct writing`
+    );
+
+    try {
+      const root = await navigator.storage.getDirectory();
+      const fileHandle: FileSystemFileHandle = await root.getFileHandle(
+        newFileName,
+        { create: true }
+      );
+      const writable = await fileHandle.createWritable();
+
+      writableStreamRef.current = writable;
+      currentFileHandleRef.current = fileHandle;
+    } catch (err: any) {
+      console.error("LOG: [Media-Record] Error creating file:", err);
+      setError(`Could not create recording file: ${err.message}`);
+      // Clean up stream
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      return;
+    }
+
     setIsRecording(true);
     setCurrentRecordingType(type);
-    recordedChunksRef.current = []; // Clear old chunks
 
     const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
     mediaRecorderRef.current = recorder;
 
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
+    recorder.ondataavailable = async (event) => {
+      if (event.data.size > 0 && writableStreamRef.current) {
         console.log(
-          `LOG: [Media-Record] Data available: ${event.data.size} bytes`
+          `LOG: [Media-Record] Writing data directly to file: ${event.data.size} bytes`
         );
-        recordedChunksRef.current.push(event.data);
+        try {
+          await writableStreamRef.current.write(event.data);
+        } catch (err: any) {
+          console.error("LOG: [Media-Record] Error writing data chunk:", err);
+          setError(`Recording error: ${err.message}`);
+        }
       }
     };
 
-    recorder.onstop = () => {
+    recorder.onstop = async () => {
       console.log("LOG: [Media-Record] Recording stopped.");
-      const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
 
-      // "Upload" the file to OPFS with a UUID
-      saveBlobToOPFS(blob, type); // 'type' is 'webcam' or 'screen'
+      // Close the writable stream
+      if (writableStreamRef.current) {
+        try {
+          await writableStreamRef.current.close();
+          console.log("LOG: [Media-Record] File stream closed successfully.");
+        } catch (err: any) {
+          console.error("LOG: [Media-Record] Error closing file stream:", err);
+        }
+        writableStreamRef.current = null;
+      }
+
+      // Set the recorded file as the active one
+      if (currentFileHandleRef.current) {
+        if (type === "webcam") {
+          setActiveWebcamFileHandle(currentFileHandleRef.current);
+          setWebcamPlaybackUrl(null);
+        } else {
+          setActiveScreenFileHandle(currentFileHandleRef.current);
+          setScreenPlaybackUrl(null);
+        }
+
+        setSuccess(
+          `Recording "${currentFileHandleRef.current.name}" saved and loaded!`
+        );
+
+        // Refresh file list after saving
+        await handleListFiles();
+
+        currentFileHandleRef.current = null;
+      }
 
       // Clean up
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());

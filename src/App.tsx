@@ -69,6 +69,12 @@ export default function App() {
         console.log(
           "LOG: All required APIs (OPFS, MediaDevices, MediaRecorder) are supported."
         );
+        const isPersisted = await navigator.storage.persisted();
+        console.log(`LOG: Storage persisted: ${isPersisted}`);
+        if (!isPersisted) {
+          const persisted = await navigator.storage.persist();
+          console.log(`LOG: Storage persist() result: ${persisted}`);
+        }
         setIsSupported(true);
         // Automatically list files on initial load
         await handleListFiles();

@@ -20,6 +20,21 @@ export default function App() {
   // State for browser support
   const [isSupported, setIsSupported] = useState<boolean>(false);
 
+  // --- Logger State ---
+  const [logs, setLogs] = useState<string[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  const addLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const formattedMsg = `[${timestamp}] ${message}`;
+    setLogs((prev) => [...prev, formattedMsg].slice(-30));
+    console.log(formattedMsg);
+  };
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
   // State for recording
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [currentRecordingType, setCurrentRecordingType] =
@@ -37,10 +52,10 @@ export default function App() {
 
   // State for media playback
   const [webcamPlaybackUrl, setWebcamPlaybackUrl] = useState<string | null>(
-    null
+    null,
   );
   const [screenPlaybackUrl, setScreenPlaybackUrl] = useState<string | null>(
-    null
+    null,
   );
 
   // State for *active* text file
@@ -66,20 +81,20 @@ export default function App() {
         "mediaDevices" in navigator &&
         "MediaRecorder" in window
       ) {
-        console.log(
-          "LOG: All required APIs (OPFS, MediaDevices, MediaRecorder) are supported."
+        addLog(
+          "All required APIs (OPFS, MediaDevices, MediaRecorder) are supported.",
         );
         const isPersisted = await navigator.storage.persisted();
-        console.log(`LOG: Storage persisted: ${isPersisted}`);
+        addLog(`Storage persisted: ${isPersisted}`);
         if (!isPersisted) {
           const persisted = await navigator.storage.persist();
-          console.log(`LOG: Storage persist() result: ${persisted}`);
+          addLog(`Storage persist() result: ${persisted}`);
         }
         setIsSupported(true);
         // Automatically list files on initial load
         await handleListFiles();
       } else {
-        console.warn("LOG: One or more required APIs are not supported.");
+        addLog("One or more required APIs are not supported.");
         setIsSupported(false);
       }
     };
@@ -98,16 +113,14 @@ export default function App() {
    * This creates a NEW file in the OPFS with a UUID.
    */
   const handleFileSelect = async (
-    event: React.ChangeEvent<HTMLInputElement>
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0]; // Use optional chaining
     if (!file) {
-      console.log("LOG: [Text] File selection cancelled.");
+      addLog("[Text] File selection cancelled.");
       return;
     }
-    console.log(
-      `LOG: [Text] File selected: "${file.name}" (Size: ${file.size} bytes)`
-    );
+    addLog(`[Text] File selected: "${file.name}" (Size: ${file.size} bytes)`);
 
     clearMessages();
     setIsLoading(true);
@@ -118,29 +131,27 @@ export default function App() {
 
     // Generate a unique name
     const newFileName = `text-${crypto.randomUUID()}.txt`;
-    console.log(`LOG: [Text-Upload] New file name: ${newFileName}`);
+    addLog(`[Text-Upload] New file name: ${newFileName}`);
 
     let writable: FileSystemWritableFileStream | null = null;
 
     try {
-      console.log("LOG: [Text-Upload] Getting filesystem root...");
+      addLog("[Text-Upload] Getting filesystem root...");
       const root = await (navigator.storage as any).getDirectory();
 
-      console.log(
-        `LOG: [Text-Upload] Getting file handle for "${newFileName}"...`
-      );
+      addLog(`[Text-Upload] Getting file handle for "${newFileName}"...`);
       const fileHandle: FileSystemFileHandle = await root.getFileHandle(
         newFileName,
-        { create: true }
+        { create: true },
       );
 
-      console.log("LOG: [Text-Upload] Creating writable stream...");
+      addLog("[Text-Upload] Creating writable stream...");
       writable = await fileHandle.createWritable();
 
-      console.log("LOG: [Text-Upload] Creating readable file stream...");
+      addLog("[Text-Upload] Creating readable file stream...");
       const fileStream = file.stream();
 
-      console.log("LOG: [Text-Upload] Starting manual chunked write...");
+      addLog("[Text-Upload] Starting manual chunked write...");
       const reader = fileStream.getReader();
 
       const CHUNK_SIZE = 5 * 1024; // 5KB
@@ -149,14 +160,14 @@ export default function App() {
       while (true) {
         const { done, value } = await reader.read(); // 'value' is a Uint8Array
         if (done) {
-          console.log("LOG: [Text-Upload] Read complete (end of stream).");
+          addLog("[Text-Upload] Read complete (end of stream).");
           break;
         }
 
         for (let i = 0; i < value.length; i += CHUNK_SIZE) {
           const subChunk = value.subarray(i, i + CHUNK_SIZE);
-          console.log(
-            `LOG: [Text-Upload] Writing chunk #${chunkCount} (Size: ${subChunk.length} bytes)`
+          addLog(
+            `[Text-Upload] Writing chunk #${chunkCount} (Size: ${subChunk.length} bytes)`,
           );
           await writable.write(subChunk);
           chunkCount++;
@@ -164,8 +175,8 @@ export default function App() {
       }
 
       await writable.close();
-      console.log(
-        "LOG: [Text-Upload] Manual write complete. File written to browser filesystem."
+      addLog(
+        "[Text-Upload] Manual write complete. File written to browser filesystem.",
       );
 
       // Set this new file as the *active* one
@@ -175,11 +186,11 @@ export default function App() {
       // Refresh file list after upload
       await handleListFiles();
     } catch (err: any) {
-      console.error("LOG: [Text-Upload] Error:", err);
+      addLog(`[Text-Upload] Error: ${err.message}`);
       setError(`Upload failed: ${err.message}`);
       if (writable) {
         await writable.abort();
-        console.log("LOG: [Text-Upload] Writable stream aborted due to error.");
+        addLog("[Text-Upload] Writable stream aborted due to error.");
       }
     } finally {
       setIsLoading(false);
@@ -192,7 +203,7 @@ export default function App() {
    */
   const handleShowFile = async () => {
     if (!activeTextFileHandle) {
-      console.warn("LOG: [Text-Show] No active file handle.");
+      addLog("[Text-Show] No active file handle.");
       setError("No text file is loaded.");
       return;
     }
@@ -201,12 +212,12 @@ export default function App() {
 
     // Toggle content visibility
     if (fileContent) {
-      console.log("LOG: [Text-Show] Hiding file content.");
+      addLog("[Text-Show] Hiding file content.");
       setFileContent("");
       return;
     }
 
-    console.log("LOG: [Text-Show] Showing file content...");
+    addLog("[Text-Show] Showing file content...");
     setIsLoading(true);
 
     try {
@@ -214,9 +225,9 @@ export default function App() {
       const content = await file.text();
       setFileContent(content);
       setSuccess(`Showing content for "${activeTextFileHandle.name}".`);
-      console.log(`LOG: [Text-Show] Content loaded.`);
+      addLog("[Text-Show] Content loaded.");
     } catch (err: any) {
-      console.error("LOG: [Text-Show] Error:", err);
+      addLog(`[Text-Show] Error: ${err.message}`);
       setError(`Could not read file: ${err.message}`);
     } finally {
       setIsLoading(false);
@@ -228,18 +239,18 @@ export default function App() {
    */
   const handleDownloadTextFile = async () => {
     if (!activeTextFileHandle) {
-      console.warn("LOG: [Text-Download] No active file handle.");
+      addLog("[Text-Download] No active file handle.");
       setError("No file to download.");
       return;
     }
-    console.log("LOG: [Text-Download] Download initiated...");
+    addLog("[Text-Download] Download initiated...");
     clearMessages();
 
     try {
       await downloadFileFromHandle(activeTextFileHandle);
       setSuccess(`File "${activeTextFileHandle.name}" download initiated.`);
     } catch (err: any) {
-      console.error("LOG: [Text-Download] Error:", err);
+      addLog(`[Text-Download] Error: ${err.message}`);
       setError(`Download failed: ${err.message}`);
     }
   };
@@ -264,12 +275,14 @@ export default function App() {
     let stream: MediaStream;
     try {
       if (type === "webcam") {
+        addLog("[Media-Record] Requesting webcam and microphone...");
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: true,
         });
       } else {
         // 'screen'
+        addLog("[Media-Record] Requesting screen capture...");
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: { mediaSource: "screen" } as any,
           audio: false,
@@ -277,7 +290,7 @@ export default function App() {
       }
       mediaStreamRef.current = stream;
     } catch (err: any) {
-      console.error("LOG: [Media-Record] Error getting media stream:", err);
+      addLog(`[Media-Record] Error getting media stream: ${err.message}`);
       setError(`Could not start recording: ${err.message}`);
       return;
     }
@@ -285,22 +298,20 @@ export default function App() {
     // Create file in OPFS before starting recording
     const fileExtension = "webm";
     const newFileName = `${type}-${crypto.randomUUID()}.${fileExtension}`;
-    console.log(
-      `LOG: [Media-Record] Creating file "${newFileName}" for direct writing`
-    );
+    addLog(`[Media-Record] Creating file "${newFileName}" for direct writing`);
 
     try {
       const root = await navigator.storage.getDirectory();
       const fileHandle: FileSystemFileHandle = await root.getFileHandle(
         newFileName,
-        { create: true }
+        { create: true },
       );
       const writable = await fileHandle.createWritable();
 
       writableStreamRef.current = writable;
       currentFileHandleRef.current = fileHandle;
     } catch (err: any) {
-      console.error("LOG: [Media-Record] Error creating file:", err);
+      addLog(`[Media-Record] Error creating file: ${err.message}`);
       setError(`Could not create recording file: ${err.message}`);
       // Clean up stream
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -316,28 +327,28 @@ export default function App() {
 
     recorder.ondataavailable = async (event) => {
       if (event.data.size > 0 && writableStreamRef.current) {
-        console.log(
-          `LOG: [Media-Record] Writing data directly to file: ${event.data.size} bytes`
+        addLog(
+          `[Media-Record] Writing data directly to file: ${event.data.size} bytes`,
         );
         try {
           await writableStreamRef.current.write(event.data);
         } catch (err: any) {
-          console.error("LOG: [Media-Record] Error writing data chunk:", err);
+          addLog(`[Media-Record] Error writing data chunk: ${err.message}`);
           setError(`Recording error: ${err.message}`);
         }
       }
     };
 
     recorder.onstop = async () => {
-      console.log("LOG: [Media-Record] Recording stopped.");
+      addLog("[Media-Record] Recording stopped.");
 
       // Close the writable stream
       if (writableStreamRef.current) {
         try {
           await writableStreamRef.current.close();
-          console.log("LOG: [Media-Record] File stream closed successfully.");
+          addLog("[Media-Record] File stream closed successfully.");
         } catch (err: any) {
-          console.error("LOG: [Media-Record] Error closing file stream:", err);
+          addLog(`[Media-Record] Error closing file stream: ${err.message}`);
         }
         writableStreamRef.current = null;
       }
@@ -353,7 +364,7 @@ export default function App() {
         }
 
         setSuccess(
-          `Recording "${currentFileHandleRef.current.name}" saved and loaded!`
+          `Recording "${currentFileHandleRef.current.name}" saved and loaded!`,
         );
 
         // Refresh file list after saving
@@ -371,7 +382,7 @@ export default function App() {
     };
 
     recorder.start(1000); // Collect data in 1-second chunks
-    console.log(`LOG: [Media-Record] Started ${type} recording.`);
+    addLog(`[Media-Record] Started ${type} recording.`);
   };
 
   /**
@@ -379,10 +390,10 @@ export default function App() {
    */
   const stopRecording = () => {
     if (!mediaRecorderRef.current || !isRecording) {
-      console.warn("LOG: [Media-Record] Stop called but no active recorder.");
+      addLog("[Media-Record] Stop called but no active recorder.");
       return;
     }
-    console.log("LOG: [Media-Record] Stopping recording...");
+    addLog("[Media-Record] Stopping recording...");
     mediaRecorderRef.current.stop();
   };
 
@@ -390,7 +401,7 @@ export default function App() {
    * Gets the *active* file from OPFS and creates a playback URL.
    */
   const handlePlayMedia = async (type: RecordingType) => {
-    console.log(`LOG: [Media-Play] Initiated play for ${type}.`);
+    addLog(`[Media-Play] Initiated play for ${type}.`);
     const fileHandle =
       type === "webcam" ? activeWebcamFileHandle : activeScreenFileHandle;
     if (!fileHandle) {
@@ -405,7 +416,7 @@ export default function App() {
     try {
       const file = await fileHandle.getFile();
       const url = URL.createObjectURL(file);
-      console.log(`LOG: [Media-Play] Created Object URL: ${url}`);
+      addLog(`[Media-Play] Created Object URL: ${url}`);
 
       if (type === "webcam") {
         setWebcamPlaybackUrl(url);
@@ -413,7 +424,7 @@ export default function App() {
         setScreenPlaybackUrl(url);
       }
     } catch (err: any) {
-      console.error("LOG: [Media-Play] Error:", err);
+      addLog(`[Media-Play] Error: ${err.message}`);
       setError(`Could not play file: ${err.message}`);
     }
   };
@@ -422,7 +433,7 @@ export default function App() {
    * Downloads the *active* media file from OPFS.
    */
   const handleDownloadMedia = async (type: RecordingType) => {
-    console.log(`LOG: [Media-Download] Initiated download for ${type}.`);
+    addLog(`[Media-Download] Initiated download for ${type}.`);
     const fileHandle =
       type === "webcam" ? activeWebcamFileHandle : activeScreenFileHandle;
     if (!fileHandle) {
@@ -434,7 +445,7 @@ export default function App() {
       await downloadFileFromHandle(fileHandle);
       setSuccess(`File "${fileHandle.name}" download initiated.`);
     } catch (err: any) {
-      console.error("LOG: [Media-Download] Error:", err);
+      addLog(`[Media-Download] Error: ${err.message}`);
       setError(`Download failed: ${err.message}`);
     }
   };
@@ -445,7 +456,7 @@ export default function App() {
    * Lists all files in the root of the OPFS.
    */
   const handleListFiles = async () => {
-    console.log("LOG: [FS-Inspect] Listing files...");
+    addLog("[FS-Inspect] Listing files...");
     setIsInspecting(true);
 
     try {
@@ -464,9 +475,9 @@ export default function App() {
       } else {
         setSuccess("Filesystem is empty.");
       }
-      console.log("LOG: [FS-Inspect] Files found:", files);
+      addLog(`[FS-Inspect] Files found: ${files.length}`);
     } catch (err: any) {
-      console.error("LOG: [FS-Inspect] Error:", err);
+      addLog(`[FS-Inspect] Error: ${err.message}`);
       setError(`Could not list files: ${err.message}`);
     } finally {
       setIsInspecting(false);
@@ -477,15 +488,14 @@ export default function App() {
    * Loads a file from the OPFS into the correct "Managed File" card.
    */
   const handleLoadFile = async (fileName: string) => {
-    console.log(`LOG: [FS-Load] Loading file: ${fileName}`);
+    addLog(`[FS-Load] Loading file: ${fileName}`);
     clearMessages();
     setIsLoading(true);
 
     try {
       const root = await (navigator.storage as any).getDirectory();
-      const fileHandle: FileSystemFileHandle = await root.getFileHandle(
-        fileName
-      );
+      const fileHandle: FileSystemFileHandle =
+        await root.getFileHandle(fileName);
 
       // Determine file type from prefix and load it
       if (fileName.startsWith("text-")) {
@@ -516,11 +526,11 @@ export default function App() {
         setWebcamPlaybackUrl(null);
         setSuccess(`Loaded screen file: ${fileName}`);
       } else {
-        console.warn(`LOG: [FS-Load] Unknown file type: ${fileName}`);
+        addLog(`[FS-Load] Unknown file type: ${fileName}`);
         setError(`Unknown file type: ${fileName}`);
       }
     } catch (err: any) {
-      console.error("LOG: [FS-Load] Error:", err);
+      addLog(`[FS-Load] Error: ${err.message}`);
       setError(`Could not load file: ${err.message}`);
     } finally {
       setIsLoading(false);
@@ -531,7 +541,7 @@ export default function App() {
    * Deletes a file from the OPFS.
    */
   const handleDeleteFile = async (fileName: string) => {
-    console.log(`LOG: [FS-Delete] Deleting file: ${fileName}`);
+    addLog(`[FS-Delete] Deleting file: ${fileName}`);
     clearMessages();
     setIsLoading(true);
 
@@ -560,7 +570,7 @@ export default function App() {
       // Refresh file list after deletion
       await handleListFiles();
     } catch (err: any) {
-      console.error("LOG: [FS-Delete] Error:", err);
+      addLog(`[FS-Delete] Error: ${err.message}`);
       setError(`Could not delete file: ${err.message}`);
     } finally {
       setIsLoading(false);
@@ -573,12 +583,10 @@ export default function App() {
    * Downloads any file given its FileSystemFileHandle.
    */
   const downloadFileFromHandle = async (fileHandle: FileSystemFileHandle) => {
-    console.log(
-      `LOG: [Download] Getting file from handle "${fileHandle.name}"...`
-    );
+    addLog(`[Download] Getting file from handle "${fileHandle.name}"...`);
     const file = await fileHandle.getFile();
 
-    console.log("LOG: [Download] Creating Object URL...");
+    addLog("[Download] Creating Object URL...");
     const url = URL.createObjectURL(file);
 
     const a = document.createElement("a");
@@ -589,7 +597,7 @@ export default function App() {
 
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    console.log("LOG: [Download] Download link clicked and cleaned up.");
+    addLog("[Download] Download link clicked and cleaned up.");
   };
 
   // Render a message if the browser is not supported
@@ -599,7 +607,7 @@ export default function App() {
 
   // Main application UI
   return (
-    <div className="flex items-center justify-center min-h-screen p-4 bg-gray-100 font-inter">
+    <div className="flex flex-col items-center justify-start min-h-screen p-4 bg-gray-100 font-inter space-y-6">
       <div className="w-full max-w-2xl p-6 bg-white rounded-lg shadow-xl md:p-8">
         <h1 className="text-2xl font-bold text-center text-gray-800 md:text-3xl">
           Browser File System Manager
@@ -809,6 +817,35 @@ export default function App() {
             </pre>
           </div>
         )}
+      </div>
+
+      {/* --- Log Keeper Section --- */}
+      <div className="w-full max-w-2xl bg-black rounded-lg shadow-2xl overflow-hidden flex flex-col h-64 border border-gray-700">
+        <div className="bg-gray-800 px-4 py-2 flex items-center justify-between border-b border-gray-700">
+          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+            System Logs
+          </span>
+          <div className="flex space-x-1">
+            <div className="w-2 h-2 rounded-full bg-red-500"></div>
+            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 font-mono text-xs text-green-400 space-y-1">
+          {logs.length === 0 ? (
+            <p className="text-gray-600 italic">Waiting for system events...</p>
+          ) : (
+            logs.map((log, i) => (
+              <div
+                key={i}
+                className="border-l border-green-900 pl-2 leading-relaxed break-all"
+              >
+                {log}
+              </div>
+            ))
+          )}
+          <div ref={logEndRef} />
+        </div>
       </div>
     </div>
   );

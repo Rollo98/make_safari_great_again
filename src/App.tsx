@@ -99,6 +99,7 @@ export default function App() {
       }
     };
     checkSupportAndLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const clearMessages = () => {
